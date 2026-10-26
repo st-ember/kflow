@@ -3,23 +3,23 @@ package pipeline
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
 	"log"
-	"weak"
 
 	"github.com/cilium/ebpf/ringbuf"
 )
 
 type Poller struct {
-	reader *ringbuf.Reader
+	reader      *ringbuf.Reader
 	workerChans []chan *Event
-	stopChan chan struct{}
+	stopChan    chan struct{}
 }
 
 func NewPoller(rd *ringbuf.Reader, workerChans []chan *Event) *Poller {
 	return &Poller{
-		reader: rd,
+		reader:      rd,
 		workerChans: workerChans,
-		stopChan: make(chan struct{}),
+		stopChan:    make(chan struct{}),
 	}
 }
 
@@ -62,5 +62,12 @@ func (p *Poller) Start() {
 			}
 
 		}
+	}()
+}
+
+func (p *Poller) Stop() {
+	close(p.stopChan)
+	if err := p.reader.Close(); err != nil {
+		log.Printf("[Poller] Error closing ring buffer reader: %v", err)
 	}
 }

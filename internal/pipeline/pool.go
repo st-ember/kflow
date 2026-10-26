@@ -1,17 +1,19 @@
 package pipeline
 
+import "sync"
+
 type Event struct {
-	PID uint32
-	SAddr uint32
-	DAddr uint32
-	SPort uint32
-	DPort uint32
-	Bytes uint64
+	PID        uint32
+	SAddr      uint32
+	DAddr      uint32
+	SPort      uint32
+	DPort      uint32
+	Bytes      uint64
 	DurationNs uint64
 }
 
 var eventPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &Event{}
 	},
 }
