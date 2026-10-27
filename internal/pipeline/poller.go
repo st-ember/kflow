@@ -25,7 +25,7 @@ func NewPoller(rd *ringbuf.Reader, workerChans []chan *Event) *Poller {
 
 func (p *Poller) Start() {
 	go func() {
-		log.Println("[Poler] Ring buffer polling loop started.")
+		log.Println("[Poller] Ring buffer polling loop started.")
 		for {
 			select {
 			case <-p.stopChan:

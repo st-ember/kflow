@@ -1,3 +1,5 @@
+//go:build linux
+
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>

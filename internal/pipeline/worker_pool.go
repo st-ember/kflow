@@ -5,48 +5,42 @@ import (
 	"log"
 	"runtime"
 	"time"
-
-	"github.com/st-ember/kflow/internal/collector"
 )
 
 type MetricSet struct {
-	Packets uint64
-	Bytes uint64
+	Packets   uint64
+	Bytes     uint64
 	Durations []uint64
 }
 
 type Worker struct {
-	id int
-	inputChan chan *Event
-	localMap map[string]*MetricSet
-	stopChan chan struct{}
+	id         int
+	inputChan  chan *Event
+	localMap   map[string]*MetricSet
+	stopChan   chan struct{}
+	metricPort Metrics
 }
 
 type WorkerPool struct {
-	workers []*Worker
+	workers     []*Worker
 	workerChans []chan *Event
 }
 
-func NewWorkerPool(numWorkers int) *WorkerPool {
+func NewWorkerPool(numWorkers int, metrics Metrics) *WorkerPool {
 	if numWorkers <= 0 {
 		numWorkers = runtime.NumCPU()
 	}
 
-	workers:= make([]*Worker, numWorkers)
+	workers := make([]*Worker, numWorkers)
 	workerChans := make([]chan *Event, numWorkers)
 
 	for i := range numWorkers {
 		workerChans[i] = make(chan *Event, 4096)
-		workers[i] = &Worker{
-			id: i,
-			inputChan: workerChans[i],
-			localMap: make(map[string]*MetricSet),
-			stopChan: make(chan struct{}),
-		}
+		workers[i] = NewWorker(i, workerChans[i], metrics)
 	}
 
 	return &WorkerPool{
-		workers: workers,
+		workers:     workers,
 		workerChans: workerChans,
 	}
 }
@@ -57,7 +51,7 @@ func (wp *WorkerPool) WorkerChans() []chan *Event {
 
 func (wp *WorkerPool) Start() {
 	for _, w := range wp.workers {
-		go w.Run()
+		go w.run()
 	}
 	log.Printf("[WorkerPool] Launched %d sharded worker goroutines.", len(wp.workers))
 }
@@ -65,6 +59,16 @@ func (wp *WorkerPool) Start() {
 func (wp *WorkerPool) Stop() {
 	for _, w := range wp.workers {
 		close(w.stopChan)
+	}
+}
+
+func NewWorker(id int, inputChan chan *Event, metricPort Metrics) *Worker {
+	return &Worker{
+		id:         id,
+		inputChan:  inputChan,
+		localMap:   make(map[string]*MetricSet),
+		stopChan:   make(chan struct{}),
+		metricPort: metricPort,
 	}
 }
 
@@ -80,8 +84,8 @@ func (w *Worker) run() {
 			}
 
 			// Construct composite map key
-			saddrStr := formatIP(event.SAddr)
-			daddrStr := formatIP(event.DAddr)
+			saddrStr := w.formatIP(event.SAddr)
+			daddrStr := w.formatIP(event.DAddr)
 			dportStr := fmt.Sprintf("%d", event.DPort)
 			mapKeys := fmt.Sprintf("%s|%s|%s", saddrStr, daddrStr, dportStr)
 
@@ -117,7 +121,11 @@ func (w *Worker) flushMetrics() {
 		var saddr, daddr, dport string
 		_, _ = fmt.Scanf(key, "%s|%s|%s", &saddr, &daddr, &dport)
 
-		// collector.
+		w.metricPort.BatchIncPacket(saddr, daddr, dport, float64(metric.Packets))
+		w.metricPort.BatchIncByte(saddr, daddr, dport, float64(metric.Bytes))
+		for _, dur := range metric.Durations {
+			w.metricPort.ObserveLatencyNS(saddr, daddr, dport, float64(dur))
+		}
 	}
 
 	// Reset local localMap
@@ -125,5 +133,5 @@ func (w *Worker) flushMetrics() {
 }
 
 func (w *Worker) formatIP(ip uint32) string {
-	return fmt.Sprintf("%d.%d.%d.%d",byte(ip), byte(ip>>8), byte(ip>>16), byte(ip>>24))
+	return fmt.Sprintf("%d.%d.%d.%d", byte(ip), byte(ip>>8), byte(ip>>16), byte(ip>>24))
 }
