@@ -1,9 +1,11 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -24,6 +26,7 @@ type Worker struct {
 type WorkerPool struct {
 	workers     []*Worker
 	workerChans []chan *Event
+	wg          sync.WaitGroup
 }
 
 func NewWorkerPool(numWorkers int, metrics Metrics) *WorkerPool {
@@ -49,9 +52,9 @@ func (wp *WorkerPool) WorkerChans() []chan *Event {
 	return wp.workerChans
 }
 
-func (wp *WorkerPool) Start() {
+func (wp *WorkerPool) Start(ctx context.Context) {
 	for _, w := range wp.workers {
-		go w.run()
+		wp.wg.Go(func() { w.run(ctx) })
 	}
 	log.Printf("[WorkerPool] Launched %d sharded worker goroutines.", len(wp.workers))
 }
@@ -60,6 +63,7 @@ func (wp *WorkerPool) Stop() {
 	for _, w := range wp.workers {
 		close(w.stopChan)
 	}
+	wp.wg.Wait()
 }
 
 func NewWorker(id int, inputChan chan *Event, metricPort Metrics) *Worker {
@@ -72,7 +76,7 @@ func NewWorker(id int, inputChan chan *Event, metricPort Metrics) *Worker {
 	}
 }
 
-func (w *Worker) run() {
+func (w *Worker) run(ctx context.Context) {
 	flushTicker := time.NewTicker(1 * time.Second)
 	defer flushTicker.Stop()
 
@@ -108,6 +112,9 @@ func (w *Worker) run() {
 		case <-w.stopChan:
 			w.flushMetrics()
 			return
+		case <-ctx.Done():
+			w.flushMetrics()
+			return
 		}
 	}
 }
@@ -119,7 +126,7 @@ func (w *Worker) flushMetrics() {
 
 	for key, metric := range w.localMap {
 		var saddr, daddr, dport string
-		_, _ = fmt.Scanf(key, "%s|%s|%s", &saddr, &daddr, &dport)
+		_, _ = fmt.Sscanf(key, "%s|%s|%s", &saddr, &daddr, &dport)
 
 		w.metricPort.BatchIncPacket(saddr, daddr, dport, float64(metric.Packets))
 		w.metricPort.BatchIncByte(saddr, daddr, dport, float64(metric.Bytes))
