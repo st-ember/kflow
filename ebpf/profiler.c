@@ -1,13 +1,14 @@
-//go:build linux
+//go:build ignore
 
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
-#include <linux/bpf.h>
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_tracing.h>
-#include <linux/sched.h>
-#include <linux/in.h>
-#include <profiler.h>
+
+#ifndef AF_INET
+#define AF_INET 2
+#endif
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -21,6 +22,19 @@ struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 256 * 1024); // 256 KB
 } events SEC(".maps");
+
+// Standardized 32-byte event schema for Go consumption
+struct event_t {
+    __u32 pid;
+    __u32 saddr;
+    __u32 daddr;
+    __u16 sport;
+    __u16 dport;
+    __u64 bytes;
+    __u64 duration_ns;
+};
+
+const struct event_t *unused __attribute__((unused));
 
 // Helper: Validate container namespace context
 static __always_inline int validate_namespace(void)
